@@ -1,0 +1,32 @@
+{
+  "id": "sarcomere",
+  "title": "The sarcomere and the sliding filaments",
+  "author": "starhopp3r",
+  "prompt": "/microscope how a sarcomere contracts: the sliding filament model, interactive",
+  "kind": "SVG",
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "skill": {
+    "kit": "sha256:6d8c54fbc8fe95b617bd5be95e18d0ee65f9bc2e6048ad3f479e17f482004daa"
+  },
+  "build": [
+    [
+      "src/build.mjs",
+      "--light"
+    ],
+    [
+      "src/build.mjs"
+    ]
+  ],
+  "pages": {
+    "light": "src/sarcomere-light.html",
+    "dark": "src/sarcomere.html"
+  },
+  "preview": "light",
+  "license": "MIT",
+  "tags": [
+    "zoology",
+    "muscle"
+  ],
+  "created": "2026-10-13"
+}

@@ -46,7 +46,7 @@ const anchors = {
   head: at(polar(KNOB.R + KNOB.across, LEFT, KNOB.z)),
   stator: at(toward([ASUB.at[0], ASUB.at[1], 28], statorR, RIGHT)),
   membraneTop: at([MEMBRANE.x0 + 40, -6, MEMBRANE.z1]),
-  proton: at(toward(highH[0], PROTON_R * 0.6, RIGHT)),
+  proton: at(toward(highH[0], PROTON_R * 0.9, RIGHT)),
   membrane: at([MEMBRANE.x1, 0, 0]),
   stalk: at(toward(STALK[2], STALK_R, RIGHT)),
   oscp: at(polar(OSCP.across * 0.5, VIEW_DEG - 25, OSCP.z - OSCP.tall * 0.7)),
@@ -74,13 +74,12 @@ const reaction =
   `<text class="bio-label" x="${textX.toFixed(1)}" y="${atpY.toFixed(1)}" text-anchor="end" font-weight="700">ATP</text>` +
   bio.arrow([[textX + 8, adpY - 4], [textX + 8, atpY - 4]], { bend: -30, size: 6.5 });
 
-const svg = k.figureSvg({
+const svg = bio.bioSvg({
   width: W,
   height: H,
   label:
     "A textbook-style drawing of mitochondrial ATP synthase in the inner mitochondrial membrane, shown as a phospholipid bilayer with orange heads and pale tails. Above is the intermembrane space, below is the matrix. Protons, drawn as red H+ spheres, flow down through the blue stator a subunit, ride the teal rotor ring of eight c subunits and leave into the matrix, turning the ring and the yellow central stalk. The stalk turns inside the catalytic head of three pale purple alpha and three dark purple beta subunits, held by the blue peripheral stalk and OSCP, and ADP plus phosphate becomes ATP.",
   body: [
-    bio.bioDefs(),
     background,
     membrane,
     `<g data-live="protein">${proteinSvg(THETA0, P, B, [{ d: rodDepth - 0.5, svg: spin.back }])}</g>`,
@@ -90,19 +89,24 @@ const svg = k.figureSvg({
     labels.join(""),
     reaction,
   ],
-  className: "bio-svg",
 });
 
 const caption = `Bovine (${SPECIES}) mitochondrial ATP synthase. Protons flow down their gradient from the intermembrane space through a half-channel in the a subunit, bind the ring of ${C_SUBUNITS} c subunits, ride it almost a full turn and leave into the matrix. The ring and central stalk turn clockwise seen from the intermembrane space (anticlockwise seen from the matrix), and every 120° of the γ stalk changes the β subunits so that one releases ATP: ${C_SUBUNITS} H⁺ and ${ATP_PER_TURN} ATP per turn, about ${H_PER_ATP.toFixed(1)} H⁺ per ATP. The enzyme turns about ${REV_PER_S} times a second; here it is shown about ${SLOWER}× slower, and the elastic coupling between 45° steps in F₀ and 120° steps in F₁ is drawn as one rigid rotor. Sources: ${[...new Set(SOURCES.map((entry) => entry.source))].join("; ")}.`;
 
-const stage = `<div class="iso-stage bio-stage" tabindex="0" role="slider" aria-label="ATP synthase: hover to drive protons through, right arrow for one proton, space to pause" aria-valuemin="0" aria-valuemax="1000000" aria-valuenow="0" aria-valuetext="${readoutOf(0)}">${svg}</div>`;
-const body = `<figure class="iso-figure bio-figure"><div class="iso-plate bio-plate"><p class="bio-title"><span class="bio-fig">Figure 1</span>ATP synthase, a rotary motor driven by protons</p>${stage}<div class="bio-foot"><span>Hover to drive · → one proton · space to pause</span><span data-readout>${readoutOf(0)}</span></div></div><figcaption class="iso-legend"><span class="iso-caption">${caption}</span></figcaption></figure>`;
-
 const strip = (file) => readFileSync(join(HERE, file), "utf8").replace(/^import .*$/gm, "").replace(/^export /gm, "");
 const DATA = { P, THETA0, queue, backArc: { d: rodDepth - 0.5, svg: spin.back } };
 const live = `const DATA = ${JSON.stringify(DATA)};\n${strip("model.mjs")}\n${strip("scene.mjs")}\n${readFileSync(join(HERE, "live.js"), "utf8")}`;
-const css = bio.bioCss() + readFileSync(join(HERE, "atp.css"), "utf8");
-const page = k.pageHtml({ title: "ATP synthase", theme, body: `<style>${css}</style><div class="bio" data-theme="${theme}">${body}</div>`, script: kitScript() + bioScript() + live, width: 800 });
+const page = bio.figurePage({
+  fig: "Figure 1",
+  title: "ATP synthase, a rotary motor driven by protons",
+  svg,
+  aria: "ATP synthase: hover to drive protons through, right arrow for one proton, space to pause",
+  readout: readoutOf(0),
+  hint: "Hover to drive · → one proton · space to pause",
+  caption,
+  theme,
+  script: kitScript() + bioScript() + live,
+});
 const file = theme === "light" ? "atp-synthase-light.html" : "atp-synthase.html";
 writeFileSync(join(HERE, file), page);
 console.log("wrote", file);

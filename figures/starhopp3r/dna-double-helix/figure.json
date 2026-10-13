@@ -1,0 +1,32 @@
+{
+  "id": "dna-double-helix",
+  "title": "The DNA double helix",
+  "author": "starhopp3r",
+  "prompt": "/microscope the DNA double helix: base pairing, grooves and antiparallel strands, interactive",
+  "kind": "SVG",
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "skill": {
+    "kit": "sha256:6d8c54fbc8fe95b617bd5be95e18d0ee65f9bc2e6048ad3f479e17f482004daa"
+  },
+  "build": [
+    [
+      "src/build.mjs",
+      "--light"
+    ],
+    [
+      "src/build.mjs"
+    ]
+  ],
+  "pages": {
+    "light": "src/dna-double-helix-light.html",
+    "dark": "src/dna-double-helix.html"
+  },
+  "preview": "light",
+  "license": "MIT",
+  "tags": [
+    "molecular-biology",
+    "dna"
+  ],
+  "created": "2026-10-13"
+}

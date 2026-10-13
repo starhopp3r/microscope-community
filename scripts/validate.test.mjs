@@ -42,8 +42,8 @@ const faults = [
   ["an import that leaves the folder", (f) => edit(build(f), (t) => 'import "../../../../other/x.mjs";\n' + t), /safety: .*leaves the figure folder/],
   ["a wrong kit fingerprint", (f) => edit(join(f, "figure.json"), (t) => t.replace(/sha256:[0-9a-f]{64}/, "sha256:" + "0".repeat(64))), /skill: \.skill has kit/],
   ["a binary in src", (f) => writeFileSync(join(f, "src", "tool.wasm"), "x"), /files: src\/tool\.wasm: file type not allowed/],
-  ["a payload that only appears in the built page", (f) => edit(build(f), (t) => t.replace('k.pageHtml({ title: "ATP synthase", theme, body: `<style>${css}</style><div class="bio" data-theme="${theme}">${body}</div>`, script: kitScript() + bioScript() + live, width: 800 })', 'k.pageHtml({ title: "ATP synthase", theme, body: `<style>${css}</style><div class="bio" data-theme="${theme}">${body}</div>`, script: kitScript() + bioScript() + live, width: 800 }).replace("</head>", "<scr" + "ipt src=" + "ht" + "tps://cdn.exa" + "mple.com/x.js></scr" + "ipt></head>")')), /output: .*external address/],
-  ["a build that is not deterministic", (f) => edit(build(f), (t) => t.replace('title: "ATP synthase", theme', 'title: "ATP synthase " + Math.random(), theme')), /build: .*different on a second build/],
+  ["a payload that only appears in the built page", (f) => edit(build(f), (t) => t.replace('writeFileSync(join(HERE, file), page);', 'writeFileSync(join(HERE, file), page.replace("</head>", "<scr" + "ipt src=" + "ht" + "tps://cdn.exa" + "mple.com/x.js></scr" + "ipt></head>"));')), /output: .*external address/],
+  ["a build that is not deterministic", (f) => edit(build(f), (t) => t.replace('title: "ATP synthase, a rotary motor driven by protons",', 'title: "ATP synthase, a rotary motor driven by protons " + Math.random(),')), /build: .*different on a second build/],
   ["a build that writes an extra file", (f) => edit(build(f), (t) => t + '\nwriteFileSync(join(HERE, "extra.txt"), "x");\n'), /build: the build wrote src\/extra\.txt/],
 ];
 for (const [name, mutate, expected] of faults) test(`rejects ${name}`, { skip: !ready }, () => {
@@ -114,7 +114,7 @@ test(`the seed figure passes the browser checks (${MODE})`, { skip: !ready || (M
 
 test(`a figure that keeps moving under reduced motion is rejected (${MODE})`, { skip: !ready || (MODE === "local" && process.platform !== "darwin") }, () => {
   const out = mkdtempSync(join(tmpdir(), "microscope-out-"));
-  const { folder, done } = copy((f) => edit(build(f), (t) => t.replace('k.pageHtml({ title: "ATP synthase", theme, body: `<style>${css}</style><div class="bio" data-theme="${theme}">${body}</div>`, script: kitScript() + bioScript() + live, width: 800 })', 'k.pageHtml({ title: "ATP synthase", theme, body: `<style>${css}</style><div class="bio" data-theme="${theme}">${body}</div>`, script: kitScript() + bioScript() + live, width: 800 }).replace("</head>", "<style>@keyframes spin{to{transform:rotate(360deg)}}.iso-plate svg{animation:spin 3s linear infinite}</style></head>")')));
+  const { folder, done } = copy((f) => edit(build(f), (t) => t.replace('writeFileSync(join(HERE, file), page);', 'writeFileSync(join(HERE, file), page.replace("</head>", "<style>@keyframes spin{to{transform:rotate(360deg)}}.iso-plate svg{animation:spin 3s linear infinite}</style></head>"));')));
   try {
     const result = check(folder, { noBrowser: false, out });
     assert.ok(result.errors.some((e) => /keeps moving with reduced motion/.test(e)), result.errors.join("\n") || "(passed)");

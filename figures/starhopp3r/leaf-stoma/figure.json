@@ -1,0 +1,32 @@
+{
+  "id": "leaf-stoma",
+  "title": "A leaf in cross-section, and a stoma opening",
+  "author": "starhopp3r",
+  "prompt": "/microscope a leaf cross-section showing how stomata open and close, interactive",
+  "kind": "SVG",
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "skill": {
+    "kit": "sha256:6d8c54fbc8fe95b617bd5be95e18d0ee65f9bc2e6048ad3f479e17f482004daa"
+  },
+  "build": [
+    [
+      "src/build.mjs",
+      "--light"
+    ],
+    [
+      "src/build.mjs"
+    ]
+  ],
+  "pages": {
+    "light": "src/leaf-stoma-light.html",
+    "dark": "src/leaf-stoma.html"
+  },
+  "preview": "light",
+  "license": "MIT",
+  "tags": [
+    "botany",
+    "plant-anatomy"
+  ],
+  "created": "2026-10-13"
+}
