@@ -1,6 +1,6 @@
 <h1 align="center">Microscope community</h1>
 
-<p align="center"><b>Figures the community made with <a href="https://github.com/starhopp3r/microscope">Microscope</a>.</b><br>Biology figures: molecules, cells, microbes, plants and animals, each built as a precise, working model of the real specimen.</p>
+<p align="center"><b>Figures the community made with <a href="https://github.com/starhopp3r/microscope">Microscope</a>.</b><br>Textbook-quality biology figures that move: molecules, cells, microbes, plants and animals.</p>
 
 <p align="center">
   <a href="https://github.com/starhopp3r/microscope-community/tree/previews"><img src="https://github.com/starhopp3r/microscope-community/raw/previews/latest/1.webp" width="32%" alt="Newest figure"></a>

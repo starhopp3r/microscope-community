@@ -1,13 +1,10 @@
-.as-cut{--microscope-shade-0:#c4c4bf;--microscope-shade-1:#cbcbc6;--microscope-shade-2:#d2d2cd;--microscope-shade-3:#d9d9d4}
-.iso[data-theme="dark"] .as-cut{--microscope-shade-0:#0b0b0b;--microscope-shade-1:#0d0d0d;--microscope-shade-2:#0f0f0f;--microscope-shade-3:#111111}
-.as-void{fill:var(--microscope-shade-0);stroke:none}
-.as .it[data-on] .tb-body{fill:var(--microscope-lit-shade)}
-.as .it[data-on] .tb-shine{fill:var(--microscope-lit-top)}
-.as .it[data-on] .tb .iso-line{stroke:var(--microscope-lit)}
-.as-keys{gap:6px 8px}
-.as-key{display:inline-flex;align-items:center;gap:7px;padding:3px 8px 3px 4px;border:0;border-radius:2px;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
-button.as-key:hover,button.as-key:focus-visible,button.as-key[data-on]{color:var(--microscope-strong);background:color-mix(in srgb,var(--microscope-mid) 14%,transparent);outline:none}
-.as-n{font-family:var(--microscope-mono);font-size:10.5px;letter-spacing:.04em;color:var(--microscope-muted)}
-button.as-key[data-on] .as-n{color:var(--microscope-strong)}
-.as-dot{width:7px;height:7px;margin:0 4px 0 6px;border-radius:50%;box-shadow:0 0 0 1px var(--microscope-hi);background:var(--microscope-paper)}
-.as-static{cursor:default}
+.bio .iso-plate.bio-plate{padding:22px 22px 16px;background:var(--bio-page);box-shadow:0 0 0 1px color-mix(in srgb,var(--bio-region) 35%,transparent);border-radius:4px}
+.bio .bio-svg{border-radius:3px}
+.bio-title{margin:0 0 14px;color:var(--bio-ink);font:600 15px/1.35 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.bio-fig{margin-right:10px;color:#c2410c;font-weight:700}
+.bio[data-theme="dark"] .bio-fig{color:#fb923c}
+.bio-foot{display:flex;justify-content:space-between;gap:16px;margin-top:10px;color:var(--bio-soft);font:12px/1.4 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;font-variant-numeric:tabular-nums}
+.bio .iso-legend{color:var(--bio-soft);font:13px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.bio .iso-stage{outline:none}
+.bio .iso-stage:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--bio-flow) 45%,transparent);border-radius:3px}
+@media (max-width:560px){.bio-foot{flex-direction:column}}

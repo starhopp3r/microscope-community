@@ -7,7 +7,7 @@
   "agent": "Claude Code",
   "model": "claude-opus-5-5",
   "skill": {
-    "kit": "sha256:0950515a6bd23aa2c8b81872cfe39d4cd4bac58d064f2bf9ab182eeb76a9bc79"
+    "kit": "sha256:d68ee7ad3744ee198eecf3bd0e2639a59189f8e3545160be0085dd609b381cc6"
   },
   "build": [
     [
@@ -23,7 +23,6 @@
     "dark": "src/atp-synthase.html"
   },
   "preview": "light",
-  "audit": true,
   "license": "MIT",
   "tags": [
     "molecular-biology",

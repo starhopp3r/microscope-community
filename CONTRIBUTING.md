@@ -2,14 +2,14 @@
 
 By contributing you agree to follow the [code of conduct](CODE_OF_CONDUCT.md).
 
-Thank you for sharing one. A figure here is a precise, working model of a biological structure or process, made with the [Microscope](https://github.com/starhopp3r/microscope) skill in Claude Code, OpenCode, Codex or Antigravity.
+Thank you for sharing one. A figure here is a textbook-quality, interactive drawing of a biological structure or process, made with the [Microscope](https://github.com/starhopp3r/microscope) skill in Claude Code, OpenCode, Codex or Antigravity.
 
 ## What can be published
 
 - **Plain HTML figures:** a build script (usually `build.mjs`) that writes standalone pages next to itself, as the skill's examples do. It is the one format the gallery takes: it rebuilds with no installs, runs sandboxed and can be checked line by line. React and Next.js figures can't be submitted; the gallery can offer React versions of every figure later, generated from the HTML.
 - **Any theme:** one page or several, light, dark or your own colours. Name the one to show as the preview with `preview`, or the gallery uses the light page, else the first.
 - **Your own work,** in your own folder, `figures/<your-github-name>/<id>/`, shared under the license you pick (MIT or CC-BY-4.0).
-- **The skill's quality bar:** the real specimen built from many small precise parts, not boxes, arrows and labels. Every count, direction and number the figure shows is biologically true, and the caption names its sources.
+- **The skill's quality bar:** it looks like a figure from a good biology textbook, never like an engineering drawing: the real structure in soft, colour-coded shapes, membranes as bilayers, tinted compartments, labels with leader lines and process arrows. Every count, direction and number it shows is biologically true, and the caption names its sources.
 
 ## Steps
 

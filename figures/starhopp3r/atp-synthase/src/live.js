@@ -1,29 +1,24 @@
 const P = DATA.P;
+const B = { sphere, ellipsoid, capsule, rope, iso, depthOf };
 const stage = document.querySelector(".iso-stage");
 const svg = stage.querySelector("svg");
-const figure = stage.closest(".iso-figure");
-const layer = (name) => svg.querySelector(`[data-live="${name}"]`);
-const rotorBack = layer("rotor-back");
-const rotorFront = layer("rotor-front");
-const imsLayer = layer("ims");
-const matrixLayer = layer("matrix");
-const atpBehind = layer("atp-behind");
-const atpFront = layer("atp-front");
+const proteinLayer = svg.querySelector('[data-live="protein"]');
+const transitLayer = svg.querySelector('[data-live="transit"]');
 const readout = document.querySelector("[data-readout]");
 const still = matchMedia("(prefers-reduced-motion: reduce)");
-const K = { cylinder, solidSvg, depthOf };
 const REST_S = 2.4;
-const QUEUE = 3;
-const TOUR = RING.n;
-const BETAS = DATA.LOBES.filter((lobe) => lobe.kind === "beta").map((lobe) => lobe.angle).sort((a, b) => b - a);
+const BETAS = LOBES.filter((lobe) => lobe.kind === "beta").map((lobe) => lobe.angle);
 const rand = seeded(7);
 
-const place = (point, markup, alpha = 1) => `<g transform="${translateAlong(P, point)}"${alpha < 0.999 ? ` opacity="${Math.max(0, alpha).toFixed(3)}"` : ""}>${markup}</g>`;
 const ease = (t) => t * t * (3 - 2 * t);
 const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-const HOLE_IN = polar(INLET.r, INLET.angle, INLET.z);
-const NORMAL_IN = polar(1, INLET.angle - 90);
-const queueAt = (slot) => [HOLE_IN[0] + NORMAL_IN[0] * (6 + slot * 6.5), HOLE_IN[1] + NORMAL_IN[1] * (6 + slot * 6.5) + slot * 2.4, INLET.z - 5 - slot * 4.2];
+const along = (points, t) => {
+  const spans = points.length - 1;
+  const at = Math.min(spans - 1e-9, Math.max(0, t * spans));
+  const index = Math.floor(at);
+  return lerp3(points[index], points[index + 1], at - index);
+};
+const envelope = (t) => (t < 0.12 ? t / 0.12 : 1) * (t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4);
 
 let theta = DATA.THETA0;
 let target = DATA.THETA0;
@@ -35,63 +30,46 @@ let tourSteps = 0;
 let touring = !still.matches;
 let driving = false;
 let paused = false;
-let lit = "";
 let visible = false;
 let frame = 0;
 let last = 0;
 let idle = 0;
 let transits = [];
-let queue = Array.from({ length: QUEUE }, (_, index) => ({ at: index, alpha: 1 }));
+let queue = DATA.queue.map((point, index) => ({ slot: index, at: index, alpha: 1 }));
+const slotPoint = (slot) => {
+  const index = Math.max(0, Math.min(DATA.queue.length - 1, slot));
+  const low = Math.floor(index);
+  const high = Math.min(DATA.queue.length - 1, low + 1);
+  return lerp3(DATA.queue[low], DATA.queue[high], index - low);
+};
 
 function step() {
-  target -= STEP_DEG;
-  if (queue.length) {
-    queue.shift();
-    transits.push({ kind: "in", t: 0, dur: STEP_S * 0.55 });
-    queue.forEach((proton) => { proton.slot = (proton.slot ?? proton.at) - 1; });
-    queue.push({ at: QUEUE, slot: QUEUE - 1, alpha: 0 });
-  }
-}
-
-function spawnOut() {
-  transits.push({ kind: "out", t: 0, dur: 1.6, spin: rand() * 16 - 8 });
-}
-
-function spawnAtp(index) {
-  transits.push({ kind: "atp", t: 0, dur: 2.6, angle: BETAS[index % BETAS.length] });
+  target += STEP_DEG;
+  const head = queue.shift();
+  if (head) transits.push({ kind: "in", t: 0, dur: STEP_S * 0.6, from: slotPoint(head.at) });
+  queue.forEach((proton) => { proton.slot -= 1; });
+  queue.push({ slot: DATA.queue.length - 1, at: DATA.queue.length - 1, alpha: 0 });
 }
 
 function draw() {
-  const rotor = rotorSvg(theta, P, K, (point) => place(point, DATA.SPRITE_H));
-  const dim = lit && lit !== "rotor";
-  rotorBack.innerHTML = dim ? rotor.back.replaceAll(' data-lit=""', "") : rotor.back;
-  rotorFront.innerHTML = dim ? rotor.front.replaceAll(' data-lit=""', "") : rotor.front;
-  const ims = queue.map((proton) => place(queueAt(proton.at), DATA.SPRITE_H, proton.alpha));
-  const matrix = [];
-  const behind = [];
-  const front = [];
+  const extras = [];
+  const moving = [];
   for (const item of transits) {
     const t = Math.min(1, item.t / item.dur);
-    if (item.kind === "in") ims.push(place(lerp3(queueAt(0), HOLE_IN, ease(t)), DATA.SPRITE_H, t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4));
-    if (item.kind === "out") {
-      const point = polar(OUTLET.r + 12 * t, OUTLET.angle + item.spin * t, OUTLET.z + 2 + 24 * ease(t));
-      matrix.push(place(point, DATA.SPRITE_H, (t < 0.12 ? t / 0.12 : 1) * (t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45)));
-    }
+    if (item.kind === "in") moving.push(protonGlyph(P, B, lerp3(item.from, ENTRY[1], ease(t)), t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3));
+    if (item.kind === "out") moving.push(protonGlyph(P, B, along([polar(SITE_R, A_DEG - 22.5, 0), EXIT[0], EXIT[1]], ease(t)), envelope(t)));
     if (item.kind === "atp") {
-      const from = polar(DATA.LOBE.rc + DATA.LOBE.re + 3, item.angle, DATA.LOBE.z + 16);
-      const to = polar(DATA.LOBE.rc + DATA.LOBE.re + 24, item.angle + 8, DATA.LOBE.z + 40);
-      const markup = place(lerp3(from, to, ease(t)), DATA.SPRITE_ATP, (t < 0.12 ? t / 0.12 : 1) * (t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45));
-      (Math.cos(((item.angle - VIEW_DEG) * Math.PI) / 180) >= 0 ? front : behind).push(markup);
+      const drop = Math.sin(((VIEW_DEG - item.angle) * Math.PI) / 180) > 0 ? 0 : 17;
+      const point = lerp3(polar(KNOB.R + KNOB.across + 4, item.angle, KNOB.z - drop), polar(KNOB.R + KNOB.across + 12, item.angle + 6, KNOB.z - drop - 10), ease(t));
+      extras.push({ d: depthOf(point, P) + 1, svg: atpGlyph(P, B, point, envelope(t)) });
     }
   }
-  imsLayer.innerHTML = ims.join("");
-  matrixLayer.innerHTML = matrix.join("");
-  atpBehind.innerHTML = behind.join("");
-  atpFront.innerHTML = front.join("");
-  const turned = DATA.THETA0 - theta;
-  const text = readoutOf(Math.max(0, turned));
+  proteinLayer.innerHTML = proteinSvg(theta, P, B, [...extras, DATA.backArc]);
+  transitLayer.innerHTML = queue.map((proton) => protonGlyph(P, B, slotPoint(proton.at), proton.alpha)).join("") + moving.join("");
+  const turned = Math.max(0, theta - DATA.THETA0);
+  const text = readoutOf(turned);
   if (readout.textContent !== text) readout.textContent = text;
-  stage.setAttribute("aria-valuenow", String(protonsOf(Math.max(0, turned))));
+  stage.setAttribute("aria-valuenow", String(protonsOf(turned)));
   stage.setAttribute("aria-valuetext", text);
 }
 
@@ -106,7 +84,7 @@ function tick(now) {
       step();
       tourSteps += 1;
       wait = STEP_S + dwellOf(rand, driving ? 0.4 : 1);
-      if (touring && tourSteps % TOUR === 0) wait += REST_S;
+      if (touring && tourSteps % RING.n === 0) wait += REST_S;
     }
   }
   if (calm) {
@@ -124,25 +102,23 @@ function tick(now) {
       rate = 0;
     }
   }
-  const turned = DATA.THETA0 - theta;
+  const turned = theta - DATA.THETA0;
   while (crossed < protonsOf(turned)) {
     crossed += 1;
-    if (!calm) spawnOut();
+    if (!calm) transits.push({ kind: "out", t: 0, dur: 1.5 });
   }
   while (released < atpOf(turned)) {
-    if (!calm) spawnAtp(released);
+    if (!calm) transits.push({ kind: "atp", t: 0, dur: 2.4, angle: BETAS[released % BETAS.length] });
     released += 1;
   }
   for (const item of transits) item.t += dt;
-  transits = transits.filter((item) => item.t < item.dur);
+  transits = calm ? [] : transits.filter((item) => item.t < item.dur);
   for (const proton of queue) {
-    const goal = proton.slot ?? proton.at;
-    proton.at = calm ? goal : proton.at + (goal - proton.at) * (1 - Math.exp(-dt / 0.25));
+    proton.at = calm ? proton.slot : proton.at + (proton.slot - proton.at) * (1 - Math.exp(-dt / 0.25));
     proton.alpha = calm ? 1 : Math.min(1, proton.alpha + dt / 0.6);
   }
-  if (calm) transits = [];
   draw();
-  const busy = touring || driving || transits.length || theta !== target || queue.some((proton) => proton.alpha < 1 || Math.abs((proton.slot ?? proton.at) - proton.at) > 0.002);
+  const busy = touring || driving || transits.length || theta !== target || queue.some((proton) => proton.alpha < 1 || Math.abs(proton.slot - proton.at) > 0.002);
   frame = visible && busy && !paused ? requestAnimationFrame(tick) : 0;
 }
 
@@ -189,42 +165,5 @@ stage.addEventListener("keydown", (event) => {
     else rest();
     run();
   }
-});
-
-function show(part) {
-  lit = part;
-  figure.querySelectorAll(".it[data-on]").forEach((node) => {
-    node.removeAttribute("data-on");
-    node.querySelectorAll(".iso-solid[data-shown]").forEach((solid) => {
-      solid.removeAttribute("data-lit");
-      solid.removeAttribute("data-shown");
-    });
-  });
-  figure.querySelectorAll(".as-key[data-on]").forEach((key) => key.removeAttribute("data-on"));
-  if (part) {
-    figure.querySelector(`.as-key[data-key="${part}"]`)?.setAttribute("data-on", "");
-    if (part !== "rotor") {
-      figure.querySelectorAll(`.it[data-part="${part}"]`).forEach((node) => {
-        node.setAttribute("data-on", "");
-        node.querySelectorAll(".iso-solid:not([data-lit])").forEach((solid) => {
-          solid.setAttribute("data-lit", "");
-          solid.setAttribute("data-shown", "");
-        });
-      });
-    }
-  }
-  draw();
-}
-figure.querySelectorAll(".as-key[data-key]").forEach((key) => {
-  const part = key.getAttribute("data-key");
-  key.addEventListener("pointerenter", () => show(part));
-  key.addEventListener("focus", () => show(part));
-  key.addEventListener("pointerleave", () => show(""));
-  key.addEventListener("blur", () => show(""));
-});
-svg.querySelectorAll(".it[data-part]").forEach((node) => {
-  const part = node.getAttribute("data-part");
-  node.addEventListener("pointerenter", () => show(part));
-  node.addEventListener("pointerleave", () => show(""));
 });
 draw();
