@@ -1,0 +1,114 @@
+name: Preview in pull request
+
+on:
+  workflow_run:
+    workflows: [Check figures]
+    types: [completed]
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: pr-previews-branch
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    name: Post the preview
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+    steps:
+      - name: Trusted scripts, from main
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.23.3
+
+      - name: Download what the check built (data only, never run)
+        uses: actions/download-artifact@v4
+        with:
+          name: built
+          path: incoming
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Check the posters and write the comment
+        run: node scripts/pr-preview.mjs --artifact incoming --out out --repo "$REPO" --conclusion "$CONCLUSION" --run-url "$RUN_URL"
+
+      - name: Make sure the artifact belongs to this pull request
+        run: |
+          number="$(cat out/number.txt)"
+          if [ "$(gh api "repos/$REPO/pulls/$number" --jq .state)" != "open" ]; then echo "pull request #$number is closed; nothing to post"; exit 1; fi
+          head="$(gh api "repos/$REPO/pulls/$number" --jq .head.sha)"
+          if [ "$head" != "$HEAD_SHA" ]; then echo "pull request #$number is at $head, not $HEAD_SHA; skipping"; exit 1; fi
+          echo "NUMBER=$number" >> "$GITHUB_ENV"
+
+      - name: Store the previews on the pr-previews branch
+        run: |
+          git init -q branch && cd branch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if git fetch -q --depth 1 origin pr-previews; then git checkout -q FETCH_HEAD; fi
+          rm -rf "pr/$NUMBER"
+          if [ -d "../out/pr/$NUMBER" ]; then mkdir -p pr && cp -R "../out/pr/$NUMBER" "pr/$NUMBER"; fi
+          git checkout -q --orphan next
+          git add -A
+          git commit -q --allow-empty -m "Previews for open pull requests"
+          git push -q -f origin next:pr-previews
+
+      - name: Post or update the comment
+        run: |
+          id="$(gh api --paginate "repos/$REPO/issues/$NUMBER/comments" --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- microscope-preview -->"))) | .id' | head -n 1)"
+          if [ -n "$id" ]; then gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@out/comment.md > /dev/null; else gh api "repos/$REPO/issues/$NUMBER/comments" -F body=@out/comment.md > /dev/null; fi
+
+  cleanup:
+    name: Clean up after a closed pull request
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+    steps:
+      - name: Delete the submission branch
+        run: |
+          case "$HEAD_REF" in submission/[0-9]*) ;; *) exit 0;; esac
+          [ "$HEAD_REPO" = "$REPO" ] || exit 0
+          gh api -X DELETE "repos/$REPO/git/refs/heads/$HEAD_REF" > /dev/null 2>&1 || echo "already gone"
+
+      - name: Drop the previews of every closed pull request from the pr-previews branch
+        run: |
+          git init -q branch && cd branch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          git fetch -q --depth 1 origin pr-previews || exit 0
+          git checkout -q FETCH_HEAD
+          [ -d pr ] || exit 0
+          for dir in pr/*; do
+            n="${dir#pr/}"
+            case "$n" in ''|*[!0-9]*) rm -rf "$dir"; continue;; esac
+            if [ "$n" = "$NUMBER" ] || [ "$(gh api "repos/$REPO/pulls/$n" --jq .state 2>/dev/null)" != "open" ]; then rm -rf "$dir"; fi
+          done
+          git checkout -q --orphan next
+          git add -A
+          git commit -q --allow-empty -m "Previews for open pull requests"
+          git push -q -f origin next:pr-previews

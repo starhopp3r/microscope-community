@@ -1,0 +1,172 @@
+name: Previews
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      offset:
+        description: Skip this many figures (set by the run before, when a rebuild is split into batches)
+        default: "0"
+      base:
+        description: Only figures changed since this commit (empty rebuilds every figure)
+        default: ""
+      sha:
+        description: The main commit to build (set by the run before, so every batch builds the same commit)
+        default: ""
+
+env:
+  BATCH: 30
+
+concurrency:
+  group: previews-branch
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build previews in the sandbox
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    outputs:
+      next: ${{ steps.pick.outputs.next }}
+      base: ${{ steps.pick.outputs.base }}
+      sha: ${{ steps.pick.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.sha || github.sha }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.23.3
+
+      - name: Parser for the code analysis
+        run: |
+          npm install --prefix "$RUNNER_TEMP/tools" --no-audit --no-fund --ignore-scripts --no-save acorn@8.19.0
+          echo "NODE_PATH=$RUNNER_TEMP/tools/node_modules" >> "$GITHUB_ENV"
+
+      - name: Build the locked sandbox
+        run: docker build --platform linux/amd64 -t microscope-sandbox:local sandbox
+
+      - name: Figures to preview
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          OFFSET: ${{ inputs.offset }}
+          INPUT_BASE: ${{ inputs.base }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          base=""
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            base="$INPUT_BASE"
+          else
+            built=$(gh api "repos/$REPO/contents/BUILT_FROM?ref=previews" -H "Accept: application/vnd.github.raw" 2>/dev/null | tr -d '[:space:]' || true)
+            if printf '%s' "$built" | grep -Eq '^[0-9a-f]{40}$' && git merge-base --is-ancestor "$built" "$sha" 2>/dev/null; then base="$built"; fi
+          fi
+          if [ -n "$base" ] && ! printf '%s' "$base" | grep -Eq '^[0-9a-f]{40}$'; then echo "::error::base must be a full commit hash"; exit 1; fi
+          offset="${OFFSET:-0}"
+          printf '%s' "$offset" | grep -Eq '^[0-9]+$' || { echo "::error::offset must be a number"; exit 1; }
+          if [ -n "$base" ]; then node scripts/changed.mjs --base "$base" > all.txt; else node scripts/changed.mjs --all > all.txt; fi
+          sort -o all.txt all.txt
+          total=$(grep -c . all.txt || true)
+          tail -n "+$((offset + 1))" all.txt | head -n "$BATCH" > figures.txt
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if [ "$total" -gt "$((offset + BATCH))" ]; then echo "next=$((offset + BATCH))" >> "$GITHUB_OUTPUT"; echo "base=$base" >> "$GITHUB_OUTPUT"; fi
+          echo "Building $sha since ${base:-the start}: figures $((offset + 1))–$((offset + $(grep -c . figures.txt || true))) of $total: $(tr '\n' ' ' < figures.txt)"
+
+      - name: Build each figure and make its preview
+        run: |
+          while read -r id; do
+            [ -n "$id" ] || continue
+            echo "::group::$id"
+            if node scripts/skill.mjs "figures/$id" && node scripts/validate.mjs "figures/$id" --docker --require-docker --skip-audit --out "built/$id"; then
+              docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" -v "$PWD/built/$id:/out:rw" microscope-sandbox:local sh -c 'cwebp -quiet -q 82 -resize 1200 0 /out/poster.png -o /out/preview.webp && if [ -f /out/card.png ]; then cwebp -quiet -q 84 /out/card.png -o /out/card.webp; fi'
+            else
+              echo "::warning::$id did not build; its preview is left as it was"
+            fi
+            echo "::endgroup::"
+          done < figures.txt
+          node -e 'const fs=require("fs");const out=[];for(const a of fs.existsSync("figures")?fs.readdirSync("figures"):[])for(const i of fs.readdirSync(`figures/${a}`)){try{out.push(JSON.parse(fs.readFileSync(`figures/${a}/${i}/figure.json`,"utf8")))}catch{}}fs.mkdirSync("built",{recursive:true});fs.writeFileSync("built/figures.json",JSON.stringify(out))'
+          find built -type f ! -name preview.webp ! -name card.webp ! -name live.html ! -name figures.json -delete
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: previews
+          path: built/
+          retention-days: 7
+
+  publish:
+    name: Publish to the previews branch
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      NEXT: ${{ needs.build.outputs.next }}
+      SHA: ${{ needs.build.outputs.sha }}
+    steps:
+      - name: Trusted scripts, from main
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.23.3
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: previews
+          path: incoming
+
+      - name: Update the previews branch
+        run: |
+          git init -q branch
+          cd branch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if git fetch -q --depth 1 origin previews; then git checkout -q FETCH_HEAD; fi
+          cd ..
+          node scripts/previews.mjs --artifact incoming --branch branch --figures incoming/figures.json --repo "$REPO"
+          if [ -z "$NEXT" ]; then echo "$SHA" > branch/BUILT_FROM; fi
+          cd branch
+          git checkout -q --orphan next
+          git add -A
+          git commit -q -m "Previews of every figure on main"
+          git push -q -f origin next:previews
+
+      - name: Tell the gallery site to refresh
+        env:
+          URL: ${{ secrets.SITE_REVALIDATE_URL }}
+          SECRET: ${{ secrets.SITE_REVALIDATE_SECRET }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$SECRET" ]; then echo "No SITE_REVALIDATE_URL or SITE_REVALIDATE_SECRET: the site picks the change up on its own within 5 minutes"; exit 0; fi
+          sleep 60
+          curl -fsS -X POST -H "Authorization: Bearer $SECRET" "$URL" || echo "::warning::the site did not take the refresh; it updates on its own within 5 minutes"
+
+  more:
+    name: Start the next batch
+    needs: [build, publish]
+    if: needs.build.outputs.next != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NEXT: ${{ needs.build.outputs.next }}
+      BASE: ${{ needs.build.outputs.base }}
+      SHA: ${{ needs.build.outputs.sha }}
+      REPO: ${{ github.repository }}
+    steps:
+      - run: gh workflow run previews.yml --repo "$REPO" --ref main -f offset="$NEXT" -f base="$BASE" -f sha="$SHA"

@@ -1,0 +1,170 @@
+name: Check figures
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number, when a submission bot started the check
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  figures:
+    name: Check figures
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ASSOCIATION: ${{ github.event.pull_request.author_association || (inputs.pr && 'NONE') || '' }}
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+    steps:
+      - name: Checker, from the base branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha || (inputs.pr && github.event.repository.default_branch) || github.sha }}
+          path: checker
+          persist-credentials: false
+
+      - name: Figures, from the pull request
+        uses: actions/checkout@v7
+        with:
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.23.3
+
+      - name: What to compare against
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$PR_BASE" ]; then base="$PR_BASE"; else base="$(git -C checker rev-parse HEAD)"; fi
+          echo "BASE=$base" >> "$GITHUB_ENV"
+
+      - name: Parser for the code analysis
+        run: |
+          npm install --prefix "$RUNNER_TEMP/tools" --no-audit --no-fund --ignore-scripts --no-save acorn@8.19.0
+          echo "NODE_PATH=$RUNNER_TEMP/tools/node_modules" >> "$GITHUB_ENV"
+
+      - name: Build the locked sandbox
+        run: docker build --platform linux/amd64 -t microscope-sandbox:local checker/sandbox
+
+      - name: Checker self-test
+        run: |
+          cd checker
+          node --test scripts/units.test.mjs
+          node scripts/skill.mjs figures/starhopp3r/atp-synthase
+          MICROSCOPE_TEST_SANDBOX=docker node --test scripts/validate.test.mjs
+
+      - name: Figures to check
+        run: |
+          cd pr
+          if [ -n "$PR_NUMBER" ]; then
+            git fetch -q origin "$BASE" 2>/dev/null || true
+            node ../checker/scripts/changed.mjs --base "$BASE" > ../figures.txt
+          else
+            node ../checker/scripts/changed.mjs --all > ../figures.txt
+          fi
+          echo "Figures: $(tr '\n' ' ' < ../figures.txt)"
+
+      - name: Check each figure in the sandbox
+        run: |
+          contributor=""
+          case "$ASSOCIATION" in OWNER|MEMBER|COLLABORATOR|"") ;; *) contributor="--contributor" ;; esac
+          status=0
+          while read -r id; do
+            [ -n "$id" ] || continue
+            echo "::group::$id"
+            if node checker/scripts/skill.mjs "pr/figures/$id"; then
+              node checker/scripts/validate.mjs "pr/figures/$id" --docker --require-docker $contributor --out "built/$id" || status=1
+            else
+              status=1
+            fi
+            echo "::endgroup::"
+          done < figures.txt
+          exit $status
+
+      - name: Pull request number for the preview comment
+        if: always() && env.PR_NUMBER != ''
+        run: mkdir -p built && echo "$PR_NUMBER" > built/pr.txt
+
+      - name: Built pages, posters and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: built
+          path: built/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  preview:
+    name: Post the preview
+    needs: figures
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.pr != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.sha }}
+      CONCLUSION: ${{ needs.figures.result }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Trusted scripts, from main
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.23.3
+
+      - name: What the check built (data only, never run)
+        uses: actions/download-artifact@v4
+        with:
+          name: built
+          path: incoming
+
+      - name: Check the posters and write the comment
+        run: node scripts/pr-preview.mjs --artifact incoming --out out --repo "$REPO" --conclusion "$CONCLUSION" --run-url "$RUN_URL"
+
+      - name: Make sure it belongs to this pull request
+        run: |
+          number="$(cat out/number.txt)"
+          if [ "$(gh api "repos/$REPO/pulls/$number" --jq .state)" != "open" ]; then echo "pull request #$number is closed; nothing to post"; exit 1; fi
+          head="$(gh api "repos/$REPO/pulls/$number" --jq .head.sha)"
+          if [ "$head" != "$HEAD_SHA" ]; then echo "pull request #$number is at $head, not $HEAD_SHA; skipping"; exit 1; fi
+          echo "NUMBER=$number" >> "$GITHUB_ENV"
+
+      - name: Store the previews on the pr-previews branch
+        run: |
+          git init -q branch && cd branch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if git fetch -q --depth 1 origin pr-previews; then git checkout -q FETCH_HEAD; fi
+          rm -rf "pr/$NUMBER"
+          if [ -d "../out/pr/$NUMBER" ]; then mkdir -p pr && cp -R "../out/pr/$NUMBER" "pr/$NUMBER"; fi
+          git checkout -q --orphan next
+          git add -A
+          git commit -q --allow-empty -m "Previews for open pull requests"
+          git push -q -f origin next:pr-previews
+
+      - name: Post or update the comment
+        run: |
+          id="$(gh api --paginate "repos/$REPO/issues/$NUMBER/comments" --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- microscope-preview -->"))) | .id' | head -n 1)"
+          if [ -n "$id" ]; then gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@out/comment.md > /dev/null; else gh api "repos/$REPO/issues/$NUMBER/comments" -F body=@out/comment.md > /dev/null; fi

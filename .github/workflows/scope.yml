@@ -1,0 +1,68 @@
+name: Scope
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  statuses: write
+
+jobs:
+  scope:
+    name: Scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number || inputs.pr }}
+    steps:
+      - name: Trusted scripts, from main
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.23.3
+
+      - name: Who is submitting
+        run: |
+          case "$PR" in ''|*[!0-9]*) echo "not a pull request number"; exit 1;; esac
+          gh api "repos/$REPO/pulls/$PR" > pr.json
+          user="$(node -p 'require("./pr.json").user.login')"
+          association="$(node -p 'require("./pr.json").author_association')"
+          head_ref="$(node -p 'require("./pr.json").head.ref')"
+          head_repo="$(node -p 'require("./pr.json").head.repo?.full_name ?? ""')"
+          if [ "$user" = "github-actions[bot]" ]; then
+            issue="$(printf '%s' "$head_ref" | sed -n 's#^submission/\([0-9][0-9]*\)$#\1#p')"
+            if [ -z "$issue" ] || [ "$head_repo" != "$REPO" ]; then echo "a bot pull request that is not a submission"; exit 1; fi
+            user="$(gh api "repos/$REPO/issues/$issue" --jq .user.login)"
+            association="NONE"
+          fi
+          echo "PR_AUTHOR=$user" >> "$GITHUB_ENV"
+          echo "PR_ASSOCIATION=$association" >> "$GITHUB_ENV"
+          echo "HEAD_SHA=$(node -p 'require("./pr.json").head.sha')" >> "$GITHUB_ENV"
+
+      - name: Files in this pull request
+        run: gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | {filename, status, previous_filename}' > files.ndjson
+
+      - name: Contributors stay in their own folder
+        id: scope
+        run: node scripts/scope-pr.mjs < files.ndjson
+
+      - name: Report on the pull request's commit
+        if: always() && github.event_name == 'workflow_dispatch' && env.HEAD_SHA != ''
+        env:
+          STATE: ${{ steps.scope.outcome == 'success' && 'success' || 'failure' }}
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: gh api "repos/$REPO/statuses/$HEAD_SHA" -f state="$STATE" -f context="Scope" -f target_url="$URL" -f description="Contributors stay in their own folder" > /dev/null

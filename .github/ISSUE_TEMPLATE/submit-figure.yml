@@ -1,0 +1,85 @@
+name: Submit a figure
+description: Share a figure you made with Microscope, without git. A bot turns it into a pull request.
+title: "Figure: "
+labels: [submission]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Put your figure's source files in a **GitHub Gist** under your own account: `build.mjs`, plus any file it reads (`live.js`, a `.css`, …). Don't include the built `.html` pages. Then fill this in. A bot checks it and opens a pull request for you; a comment here links to it.
+  - type: input
+    id: gist
+    attributes:
+      label: Gist link
+      placeholder: https://gist.github.com/your-name/0123456789abcdef0123
+    validations:
+      required: true
+  - type: input
+    id: id
+    attributes:
+      label: Figure id
+      description: Lowercase words joined by dashes. It becomes the folder name.
+      placeholder: stomata-leaf-block
+    validations:
+      required: true
+  - type: input
+    id: title
+    attributes:
+      label: Title
+      placeholder: Stomata in a leaf block
+    validations:
+      required: true
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Prompt
+      description: The request that made the figure.
+      placeholder: /microscope show how stomata open and close in a leaf, interactive
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options: [Claude Code, OpenCode, Codex, Antigravity, Other]
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: The model that drew it, like Claude Opus 5.5 or GPT-5. It shows on the gallery card with its maker's mark.
+    validations:
+      required: true
+  - type: input
+    id: time
+    attributes:
+      label: Time to make
+      description: Optional. About how long your agent worked on it, like 45 min or 2 h. It shows on the gallery.
+      placeholder: 45 min
+  - type: input
+    id: tokens
+    attributes:
+      label: Tokens spent
+      description: Optional. About how many tokens the session used, like 450k or 1.2M (Claude Code shows it with /cost or /usage).
+      placeholder: 1.2M
+  - type: dropdown
+    id: license
+    attributes:
+      label: License
+      options: [MIT, CC-BY-4.0]
+    validations:
+      required: true
+  - type: input
+    id: tags
+    attributes:
+      label: Tags
+      description: Optional, up to 8, comma separated.
+      placeholder: networking, rate-limiting
+  - type: checkboxes
+    id: own
+    attributes:
+      label: Your own work
+      options:
+        - label: I made this figure, and I'm fine with it being shared under the license above.
+          required: true

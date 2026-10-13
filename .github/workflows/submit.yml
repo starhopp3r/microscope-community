@@ -1,0 +1,134 @@
+name: Submit
+
+on:
+  issues:
+    types: [opened, edited, closed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: submit-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  submit:
+    name: Turn the submission into a pull request
+    if: contains(github.event.issue.labels.*.name, 'submission') && github.event.action != 'closed' && github.event.issue.state == 'open'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      NUMBER: ${{ github.event.issue.number }}
+      AUTHOR: ${{ github.event.issue.user.login }}
+      BODY: ${{ github.event.issue.body }}
+    steps:
+      - name: Trusted scripts, from main
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.23.3
+
+      - name: Read the form
+        id: request
+        run: |
+          printf '%s' "$BODY" > issue.md
+          node scripts/submit.mjs request --issue issue.md --author "$AUTHOR" --out request.json --problems problems.md
+          echo "gist=$(node -p 'require("./request.json").gistId')" >> "$GITHUB_OUTPUT"
+          echo "id=$(node -p 'require("./request.json").id')" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the gist (as data)
+        env:
+          GIST: ${{ steps.request.outputs.gist }}
+          GIST_TOKEN: ${{ secrets.MICROSCOPE_GIST_TOKEN }}
+        run: |
+          curl -fsSL --retry 3 --max-time 30 -H "Accept: application/vnd.github+json" ${GIST_TOKEN:+-H "Authorization: Bearer $GIST_TOKEN"} "https://api.github.com/gists/$GIST" > gist.json || { echo "- the gist could not be fetched; check that the link works (public or secret gists both work)" > problems.md; exit 1; }
+
+      - name: Build the figure folder
+        run: |
+          node scripts/skill.mjs --latest > latest.json
+          node scripts/submit.mjs build --issue issue.md --author "$AUTHOR" --gist gist.json --kit "$(node -p 'require("./latest.json").kit')" --commit "$(node -p 'require("./latest.json").commit')" --date "$(date -u +%F)" --root staged --problems problems.md
+
+      - name: Push the submission branch and open or update the pull request
+        id: pr
+        env:
+          ID: ${{ steps.request.outputs.id }}
+        run: |
+          author="$(printf '%s' "$AUTHOR" | tr '[:upper:]' '[:lower:]')"
+          git init -q branch && cd branch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          git fetch -q --depth 1 origin main
+          git checkout -q -b "submission/$NUMBER" FETCH_HEAD
+          rm -rf "figures/$author/$ID"
+          mkdir -p "figures/$author"
+          cp -R "../staged/figures/$author/$ID" "figures/$author/$ID"
+          git add "figures/$author/$ID"
+          git commit -q -m "Add figures/$author/$ID, submitted by @$AUTHOR in #$NUMBER"
+          git push -q -f origin "submission/$NUMBER"
+          pr="$(gh pr list -R "$REPO" --head "submission/$NUMBER" --state open --json number --jq '.[0].number')"
+          if [ -z "$pr" ]; then
+            url="$(gh pr create -R "$REPO" --base main --head "submission/$NUMBER" --title "Add figures/$author/$ID" --body "Submitted by @$AUTHOR in #$NUMBER, from their gist. Closes #$NUMBER.")"
+            pr="${url##*/}"
+          fi
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+
+      - name: Start the checks
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          gh workflow run scope.yml -R "$REPO" --ref main -f pr="$PR"
+          gh workflow run check.yml -R "$REPO" --ref "submission/$NUMBER" -f pr="$PR"
+
+      - name: Tell the submitter
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          gh issue comment "$NUMBER" -R "$REPO" --body "Thanks @$AUTHOR. Your figure is in pull request #$PR. The checks are running there, and a preview of your figure will appear on it when they finish. Edit this issue to send an updated version."
+
+      - name: Explain what went wrong
+        if: failure() && hashFiles('problems.md') != ''
+        run: |
+          { echo "Thanks @$AUTHOR, but the submission can't go ahead yet:"; echo; cat problems.md; echo; echo "Edit this issue to try again."; } > reply.md
+          gh issue comment "$NUMBER" -R "$REPO" --body-file reply.md
+
+  withdraw:
+    name: Close the pull request of a closed submission
+    if: contains(github.event.issue.labels.*.name, 'submission') && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      NUMBER: ${{ github.event.issue.number }}
+    steps:
+      - name: Close it and delete its branch
+        run: |
+          pr="$(gh pr list -R "$REPO" --head "submission/$NUMBER" --state open --json number --jq '.[0].number')"
+          if [ -z "$pr" ]; then echo "no open pull request for submission #$NUMBER"; exit 0; fi
+          gh pr close "$pr" -R "$REPO" --delete-branch --comment "Closed because submission #$NUMBER was closed."
+          echo "PR=$pr" >> "$GITHUB_ENV"
+
+      - name: Drop its previews from the pr-previews branch
+        if: env.PR != ''
+        run: |
+          git init -q branch && cd branch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          git fetch -q --depth 1 origin pr-previews || exit 0
+          git checkout -q FETCH_HEAD
+          [ -d "pr/$PR" ] || exit 0
+          rm -rf "pr/$PR"
+          git checkout -q --orphan next
+          git add -A
+          git commit -q --allow-empty -m "Previews for open pull requests"
+          git push -q -f origin next:pr-previews
